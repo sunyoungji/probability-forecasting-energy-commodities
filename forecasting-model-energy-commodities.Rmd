@@ -1,0 +1,977 @@
+---
+title: "GARCH"
+author: "Sunyoung Ji"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(stats)
+library(rugarch)
+library(tidyverse)
+library(fBasics)
+library(xts)
+
+library(scoringRules)
+
+library(copula)
+set.seed(2222)
+
+citation("stats")
+toBibtex(citation("copula"))
+packageVersion("copula")
+```
+
+
+```{r}
+pivot <- function(x) {
+  pivot_longer(x, cols = -Time, 
+               names_to = "Variable", 
+               values_to = "Value")
+}
+
+plot_func <- function(pivot,
+                      xlab, ylab, position) {
+ 
+    ggplot(pivot, aes(x = Time, y = Value, color = Variable)) +
+      geom_line() +
+      labs(
+        x = xlab, y = ylab) +
+      scale_color_discrete(name = ""
+                           )+
+      theme(legend.position = position, 
+            legend.text = element_text(size = 12),
+            legend.title = element_text(size = 14))
+  
+}
+
+
+```
+# Task 1
+
+## (a)
+
+The multivariate time series consists of first differences of daily short-term future prices of natural gas, oil and coal starting from 2010-03-16 and ending in 2020-10-27.
+
+```{r}
+data <- read.csv("commodities.csv") # daily data
+data$Time <- as.Date(as.character(data$date))
+sample <- data[,c(2:5)]
+colnames(sample) <- c("Natural Gas", "Oil", "Coal", "Time")
+
+NGas <-  xts(data$NGas, order.by = data$Time)
+Oil <-  xts(data$oil, order.by = data$Time)
+Coal <-  xts(data$coal, order.by = data$Time)
+
+round(basicStats(NGas),4)
+round(basicStats(Oil),4)
+round(basicStats(Coal),4)
+
+round(basicStats(NGas[1:2500]) ,4)
+round(basicStats(Oil[1:2500]),4)
+round(basicStats(Coal[1:2500]),4)
+
+round(basicStats(NGas[-c(1:2500)]) ,4)
+round(basicStats(Oil[-c(1:2500)]),4)
+round(basicStats(Coal[-c(1:2500)]),4)
+
+
+piv1 <- pivot(sample[,c(1,4)])
+piv2 <- pivot(sample[,c(2,4)])
+piv3 <- pivot(sample[,c(3,4)])
+
+func1 <- plot_func(piv1,xlab="Time", ylab="Value", position="top")+
+  geom_vline(xintercept = data$Time[2501], color = "black", linetype = "dashed",size=0.7)+
+  scale_x_date(date_labels = "%Y", date_breaks = "1 year")
+func2 <- plot_func(piv2,xlab="Time", ylab="Value", position="top")+
+  geom_vline(xintercept = data$Time[2501], color = "black", linetype = "dashed",size=0.7)+
+  scale_x_date(date_labels = "%Y", date_breaks = "1 year")
+func3 <- plot_func(piv3,xlab="Time", ylab="Value", position="top")+
+  geom_vline(xintercept = data$Time[2501], color = "black", linetype = "dashed",size=0.7)+
+  scale_x_date(date_labels = "%Y", date_breaks = "1 year")
+```
+
+```{r}
+
+
+ggacf(NGas, title = "ACF of the first moment of natural gas")
+ggacf(Oil, title = "ACF of the first moment of oil")
+ggacf(Coal, title = "ACF of the first moment of coal")
+
+ggpacf(NGas, title = "PACF of the first moment of natural gas")
+ggpacf(Oil, title = "PACF of the first moment of oil")
+ggpacf(Coal, title = "PACF of the first moment of coal")
+
+adf.test(NGas) # Dickey-Fuller Test, p-value is less than the 0.05
+adf.test(Oil)
+adf.test(Coal)
+
+ggacf(NGas^2, title = "ACF of the second moment of natural gas")
+ggacf(Oil^2, title = "ACF of the second moment of oil")
+ggacf(Coal^2, title = "ACF of the second moment of coal")
+
+ggpacf(NGas^2, title = "PACF of the second moment of natural gas")
+ggpacf(Oil^2, title = "PACF of the second moment of oil")
+ggpacf(Coal^2, title = "PACF of the second moment of coal")
+
+```
+
+## (b) Fitting an ARMA-GARCH model 
+Fit an ARMA-GARCH model to the first 2500 observations of each time series by maximum likelihood estimation.
+
+
+```{r, eval=FALSE}
+
+fit_list1 <- list()
+
+for (p in 0:3) {
+  for (q in 0:3) {
+    for (m in 0:3) {
+      for (n in 0:3) {
+        spec <- ugarchspec(variance.model = list(model = "sGARCH", 
+                                                 garchOrder = c(m, n)),
+                           mean.model = list(armaOrder = c(p, q)),
+                           distribution.model = "norm")
+        fit <- tryCatch(ugarchfit(spec, data = data[1:2500, 2]),
+                        error = function(e) e)  
+        
+        # Check if fit is a valid object (no error occurred during fitting)
+        if (!inherits(fit, "error")) {
+          # Append the fit object to the list
+          fit_list1[[length(fit_list1) + 1]] <- fit
+        } else {
+          # Append NA if fit fails to converge
+          fit_list1[[length(fit_list1) + 1]] <- NA
+        }
+      }
+    }
+  }
+}
+
+
+
+fit_list2 <- list()
+
+for (p in 0:3) {
+  for (q in 0:3) {
+    for (m in 0:3) {
+      for (n in 0:3) {
+        spec <- ugarchspec(variance.model = list(model = "sGARCH", 
+                                                 garchOrder = c(m, n)),
+                           mean.model = list(armaOrder = c(p, q)), 
+                           distribution.model = "norm")
+        fit <- tryCatch(ugarchfit(spec, data = data[1:2500, 3]),
+                        error = function(e) e)  
+        
+        # Check if fit is a valid object (no error occurred during fitting)
+        if (!inherits(fit, "error")) {
+          # Append the fit object to the list
+          fit_list2[[length(fit_list2) + 1]] <- fit
+        } else {
+          # Append NA if fit fails to converge
+          fit_list2[[length(fit_list2) + 1]] <- NA
+        }
+      }
+    }
+  }
+}
+
+
+fit_list3 <- list()
+
+
+for (p in 0:3) {
+  for (q in 0:3) {
+    for (m in 0:3) {
+      for (n in 0:3) {
+        spec <- ugarchspec(variance.model = list(model = "sGARCH", 
+                                                 garchOrder = c(m, n)),
+                           mean.model = list(armaOrder = c(p, q)), 
+                           distribution.model = "norm")
+        fit <- tryCatch(ugarchfit(spec, data = data[1:2500, 4]),
+                        error = function(e) e)  
+        
+        # Check if fit is a valid object (no error occurred during fitting)
+        if (!inherits(fit, "error")) {
+          # Append the fit object to the list
+          fit_list3[[length(fit_list3) + 1]] <- fit
+        } else {
+          # Append NA if fit fails to converge
+          fit_list3[[length(fit_list3) + 1]] <- NA
+        }
+      }
+    }
+  }
+}
+
+
+```
+
+
+### Model Selection
+$$
+AIC(K) = -2logL + 2K,
+$$
+where, $K$ is the number of independently estimated parameters in the model, $L$ is the maximized value of the Log- Likelihood for the estimated model. (Kuhe, 2019). Thus given a set of estimated ARMA-GARCH models for a given set of data, the preferred model is the one with the minimum information criteria and larger log likelihood value.
+
+```{r}
+spec1 <- ugarchspec(variance.model = list(model = "sGARCH", 
+                                         garchOrder = c(1,2)),
+                           mean.model = list(armaOrder = c(2,3)), 
+                   distribution.model = "norm"
+)
+
+spec2 <- ugarchspec(variance.model = list(model = "sGARCH", 
+                                         garchOrder = c(2,3)),
+                           mean.model = list(armaOrder = c(3,2)), 
+                   distribution.model = "norm"
+)
+
+
+NGasfit <- ugarchfit(spec1, data = NGas[1:2500])
+Oilfit <- ugarchfit(spec2, data = Oil[1:2500])
+Coalfit <- ugarchfit(spec1, data = Coal[1:2500])
+
+infocriteria(NGasfit)
+infocriteria(Oilfit)
+infocriteria(Coalfit)
+
+```
+
+
+
+NGas ARMA(2,3) GARCH(1,2) [[183]], AIC: 0.80953
+oil ARMA(3,2) GARCH(1,3) [[232]], AIC: 3.0067
+oil ARMA(2,3) GARCH(1,2) [[183]], AIC: 3.0217
+coal ARMA(2,3) GARCH(1,2) [[183]], AIC: 2.6059
+
+
+### Estimated parameters of ARMA (2,3) - GARCH (1,2) model
+
+The ARMA (2,3) model: 
+$$
+X_{t} = \mu + \phi_1 X_{t-1} + \phi_2 X_{t-2} + \theta_1 \epsilon_{t-1} + \theta_2 \epsilon_{t-2} + \theta_3 \epsilon_{t-3} + \epsilon_{t}    
+$$
+
+The conditional variance equation of the GARCH (1,2):
+$$
+\sigma^2(t) = \omega + \alpha_1 \epsilon_{t-1}^2 + \beta_1 \sigma_{t-1}^2 + \beta_2 \sigma_{t-2}^2
+$$
+
+mu ($\mu$): The estimated mean of the series
+ar ($\phi$): The estimated autoregressive coefficients
+ma ($\theta$): The estimated moving average coefficients
+omega ($\omega$): variance intercept parameter (The estimated intercept parameter of the GARCH model)
+alpha ($\alpha$): The estimated coefficient for the lagged squared residuals in the GARCH model (arch parameter).
+beta ($\beta$): The estimated coefficients for the lagged conditional variances in the GARCH model (garch parameters)
+
+```{r}
+# estimated coefficients
+NGascoef <- coef(NGasfit)
+Oilcoef <- coef(Oilfit)
+Coalcoef <- coef(Coalfit)
+
+cbind(round(NGascoef, 4),round(Coalcoef, 4))
+cbind(round(Oilcoef, 4))
+
+NGasfit
+```
+
+The estimated model has also satisfied the stationarity condition (Kuhe, 2019):
+```{r}
+# the sum of ARMA (2,3) parameters is less than 1
+sum(NGascoef[2:6]) 
+sum(Oilcoef[2:6]) 
+sum(Coalcoef[2:6]) 
+
+# the sum of GARCH (1,2) parameters is less than 1
+# This also shows that the conditional variance process of these series are stable and predictable
+sum(NGascoef[8:10]) 
+sum(Oilcoef[8:10]) 
+sum(Coalcoef[8:10]) 
+```
+
+
+
+Additional summary statistics:
+```{r}
+# unconditional mean in mean equation
+round(uncmean(NGasfit), 4)
+round(uncmean(Oilfit), 4)
+round(uncmean(Coalfit), 4)
+
+# unconditional varaince: omega/(alpha1+beta1)
+round(uncvariance(NGasfit), 4)
+round(uncvariance(Oilfit), 4)
+round(uncvariance(Coalfit), 4)
+
+# persistence = alpha1+beta1: quantified volatility cluster
+persistence(NGasfit)
+persistence(Oilfit)
+persistence(Coalfit)
+
+# summary plots
+plot(NGasfit, which = 3)
+plot(Oilfit, which = "all")
+plot(Coalfit, which = "all")
+# 1:   Series with 2 Conditional SD Superimposed
+# 2:   Series with 1% VaR Limits
+# 3:   Conditional SD (vs |returns|)
+# 4:   ACF of Observations
+# 5:   ACF of Squared Observations
+# 6:   ACF of Absolute Observations
+# 7:   Cross Correlation
+# 8:   Empirical Density of Standardized Residuals
+# 9:   QQ-Plot of Standardized Residuals
+#10:   ACF of Standardized Residuals
+#11:   ACF of Squared Standardized Residuals
+#12:   News-Impact Curve
+```
+
+
+
+
+## (c) plotting conditional variances
+
+```{r}
+
+cond1 <- NGasfit@fit$sigma
+cond2 <- Oilfit@fit$sigma
+cond3 <- Coalfit@fit$sigma
+cond.df <- data.frame(data[1:2500,5],cond1^2,cond2^2,cond3^2)
+colnames(cond.df) <- c("Time", "Natural Gas", "Oil", "Coal")
+
+
+NGasp <- pivot(cond.df[,c(1,2)])
+Oilp <- pivot(cond.df[,c(1,3)])
+Coalp <- pivot(cond.df[,c(1,4)])
+
+plot_func(NGasp, xlab = "Time", ylab = "Conditional Variance", 
+          position = "top") +
+  scale_x_date(date_labels = "%Y", date_breaks = "1 year")
+
+plot_func(Oilp, xlab = "Time", ylab = "Conditional Variance", 
+          position = "top")+
+  scale_x_date(date_labels = "%Y", date_breaks = "1 year")
+plot_func(Coalp, xlab = "Time", ylab = "Conditional Variance", 
+          position = "top")+
+  scale_x_date(date_labels = "%Y", date_breaks = "1 year")
+
+
+cond.df <- data.frame(data$Time[1:2500],
+                       data$NGas[1:2500], data$oil[1:2500], data$coal[1:2500],
+                       cond1,cond2,cond3)
+colnames(cond.df) <- c("Time", "NGas", "oil", "coal",
+                        "cond1", "cond2", "cond3")
+
+
+ggplot(data = cond.df) +
+  geom_line(aes(x = data$Time[1:2500], y = NGas), color = "darkgray") +
+  geom_line(aes(x = data$Time[1:2500], y = cond1), color = "red") +
+  geom_line(aes(x = data$Time[1:2500], y = -cond1), color = "red") +
+  theme_gray() +
+  labs(x = "Time", y = "Value") +
+      theme(legend.position = "top", 
+            legend.text = element_text(size = 12),
+            legend.title = element_text(size = 14))
+
+ggplot(data = cond.df) +
+  geom_line(aes(x = data$Time[1:2500], y = oil), color = "darkgray") +
+  geom_line(aes(x = data$Time[1:2500], y = cond2), color = "red") +
+  geom_line(aes(x = data$Time[1:2500], y = -cond2), color = "red") +
+  theme_gray() +
+  labs(x = "Time", y = "Value") +
+      theme(legend.position = "top", 
+            legend.text = element_text(size = 12),
+            legend.title = element_text(size = 14))
+
+ggplot(data = cond.df) +
+  geom_line(aes(x = data$Time[1:2500], y = coal), color = "darkgray") +
+  geom_line(aes(x = data$Time[1:2500], y = cond3), color = "red") +
+  geom_line(aes(x = data$Time[1:2500], y = -cond3), color = "red") +
+  theme_gray() +
+  labs(x = "Time", y = "Value") +
+  scale_color_manual(values = c("darkgray", "red"),
+                     labels = c("Natural Gas", "Conditional Variance")) +
+  theme(legend.position = "top",
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14))
+
+```
+
+
+## (d) one-day-ahead probabilistic forecasts
+
+
+
+```{r}
+fit1 <- ugarchroll(spec = spec2, data = Oil,
+                   solver = "hybrid",n.ahead= 1, 
+                   n.start = 2500, forecast.length = 200,
+                   refit.every = 1,refit.window = "moving")
+
+                  
+fit2 <- ugarchroll(spec = spec1, data = NGas, 
+                   solver = "hybrid",n.ahead= 1, 
+                   n.start = 2500, forecast.length = 200,
+                   refit.every = 1,refit.window = "moving")
+
+fit3 <- ugarchroll(spec = spec1, data = Coal, 
+                   solver = "hybrid",n.ahead= 1, 
+                   n.start = 2500, forecast.length = 200,
+                   refit.every = 1,refit.window = "moving")
+
+
+Oilres.roll <- data$oil[2501:2700]-fit1@forecast$density[,1]
+NGasres.roll <- data$NGas[2501:2700]-fit2@forecast$density[,1]
+Coalres.roll <- data$coal[2501:2700]-fit3@forecast$density[,1]
+
+
+NGassim.roll <- matrix(NA, nrow = 1000, ncol = 200)
+Oilsim.roll <- matrix(NA, nrow = 1000, ncol = 200)
+Coalsim.roll <- matrix(NA, nrow = 1000, ncol = 200)
+
+for (i in 1:200) {
+  NGassim.roll[,i] <- rnorm(n=1000, mean=fit2@forecast$density$Mu[i], 
+                        sd= sqrt(fit2@forecast$density$Sigma[i]))
+  Oilsim.roll[,i] <- rnorm(n=1000, mean=fit1@forecast$density$Mu[i], 
+                        sd= sqrt(fit1@forecast$density$Sigma[i]))
+  Coalsim.roll[,i] <- rnorm(n=1000, mean=fit3@forecast$density$Mu[i], 
+                        sd= sqrt(fit3@forecast$density$Sigma[i]))
+}
+```
+
+```{r}
+
+n1 <- data.frame(value = rnorm(1000, mean = -0.0062505871, sd = 0.2029217))
+n2 <- data.frame(value = rnorm(1000, mean = 0.0171523388, sd = 0.2173906))
+n3 <- data.frame(value = rnorm(1000, mean = -0.0106185493, sd = 0.2236960))
+n4 <- data.frame(value = rnorm(1000, mean = 0.1606811604, sd = 0.8043835))
+n5 <- data.frame(value = rnorm(1000, mean = -0.1277502801, sd = 0.7612599))
+n6 <- data.frame(value = rnorm(1000, mean = -0.0181318939, sd = 0.7238040))
+com1 <-rbind(
+  data.frame(value = n1$value, group = "2020-05-19"),
+  data.frame(value = n2$value, group = "2020-05-18"),
+  data.frame(value = n3$value, group = "2020-05-12"),
+  data.frame(value = n4$value, group = "2020-08-31"),
+  data.frame(value = n5$value, group = "2020-09-01"),
+  data.frame(value = n6$value, group = "2020-09-02")
+)
+ggplot(com1, aes(x = value, fill = group, color = group)) +
+  geom_density(alpha = 0.5) +
+  scale_fill_manual(values = c("red", "blue", "green", "orange", "purple", "pink")) +
+  scale_color_manual(values = c("red", "blue", "green", "orange", "purple", "pink")) +
+  labs(title = "Natural Gas")
+
+o1 <- data.frame(value = rnorm(1000, mean = 0.021899354, sd = 0.6814491))
+o2 <- data.frame(value = rnorm(1000, mean = -0.004541982, sd = 0.6922434))
+o3 <- data.frame(value = rnorm(1000, mean = -0.044396847, sd = 0.7022975))
+o4 <- data.frame(value = rnorm(1000, mean = 0.288631520, sd = 4.3062647))
+o5 <- data.frame(value = rnorm(1000, mean = -0.148166787, sd = 4.0720447))
+o6 <- data.frame(value = rnorm(1000, mean = -0.362758371, sd = 3.9838930))
+com2 <-rbind(
+  data.frame(value = o1$value, group = "2020-08-28"),
+  data.frame(value = o2$value, group = "2020-08-25"),
+  data.frame(value = o3$value, group = "2020-08-24"),
+  data.frame(value = o4$value, group = "2020-03-11"),
+  data.frame(value = o5$value, group = "2020-04-06"),
+  data.frame(value = o6$value, group = "2020-03-16")
+)
+ggplot(com2, aes(x = value, fill = group, color = group)) +
+  geom_density(alpha = 0.5) +
+  scale_fill_manual(values = c("red", "blue", "green", "orange", "purple", "pink")) +
+  scale_color_manual(values = c("red", "blue", "green", "orange", "purple", "pink")) +
+  labs(title = "Oil")
+
+c1 <- data.frame(value = rnorm(1000, mean = -0.0730431859, sd = 0.7867687))
+c2 <- data.frame(value = rnorm(1000, mean = 0.0292510699, sd = 0.7904719))
+c3 <- data.frame(value = rnorm(1000, mean = -0.0594549666, sd = 0.7926354))
+c4 <- data.frame(value = rnorm(1000, mean = 0.5839705040, sd = 1.1559916))
+c5 <- data.frame(value = rnorm(1000, mean = 0.5033140770, sd = 1.1266111))
+c6 <- data.frame(value = rnorm(1000, mean = -0.0463265629, sd = 1.1159973))
+com3 <-rbind(
+  data.frame(value = c1$value, group = "2020-02-03"),
+  data.frame(value = c2$value, group = "2020-01-31"),
+  data.frame(value = c3$value, group = "2020-01-30"),
+  data.frame(value = c4$value, group = "2020-06-02"),
+  data.frame(value = c5$value, group = "2020-06-30"),
+  data.frame(value = c6$value, group = "2020-06-04")
+)
+ggplot(com3, aes(x = value, fill = group, color = group)) +
+  geom_density(alpha = 0.5) +
+  scale_fill_manual(values = c("red", "blue", "green", "orange", "purple", "pink")) +
+  scale_color_manual(values = c("red", "blue", "green", "orange", "purple", "pink")) +
+  labs(title = "Coal")
+```
+
+```{r, eval=FALSE}
+
+NGasfor <- ugarchforecast(NGasfit, data=NGas[-c(1:2500)], n.ahead=200)
+Oilfor <- ugarchforecast(Oilfit, n.ahead=200)
+Coalfor <- ugarchforecast(Coalfit, n.ahead=200)
+
+NGassim <- matrix(NA, nrow = 1000, ncol = 200)
+Oilsim <- matrix(NA, nrow = 1000, ncol = 200)
+Coalsim <- matrix(NA, nrow = 1000, ncol = 200)
+
+for (i in 1:200) {
+  sim1 <- rnorm(n=1000, mean=NGasfor@forecast$seriesFor[i],
+      sd=NGasfor@forecast$sigmaFor[i])
+  sim2 <- rnorm(n=1000, mean=Oilfor@forecast$seriesFor[i],
+      sd=Oilfor@forecast$sigmaFor[i])
+  sim3 <- rnorm(n=1000, mean=Coalfor@forecast$seriesFor[i],
+      sd=Coalfor@forecast$sigmaFor[i])
+  
+  NGassim[,i] <- as.matrix(sim1)
+  Oilsim[,i] <- as.matrix(sim2)
+  Coalsim[,i] <- as.matrix(sim3)
+}
+
+```
+
+
+
+
+
+## (e)
+
+We assume that the innovations in AR(1) model are normally distributed. This assumption implies that the errors or residuals in the model are symmetrically distributed around zero, with a bell-shaped probability density function. The AR(1) model with normally distributed innovations allows for the use of standard statistical techniques, such as maximum likelihood estimation, to estimate the model parameters and perform statistical inference. 
+The assumption of normally distributed innovations is not equivalent to assuming white noise. White noise refers to a sequence of uncorrelated random variables with zero mean and constant variance. However, the normally distributed innovations in this assumption can be correlated over time due to the autoregressive component.
+
+```{r}
+
+NGascrps <- crps_sample(y=as.numeric(NGas[-c(1:2500)]), dat=t(NGassim.roll))
+Oilcrps <- crps_sample(y=as.numeric(Oil[-c(1:2500)]), dat=t(Oilsim.roll))
+Coalcrps <- crps_sample(y=as.numeric(Coal[-c(1:2500)]), dat=t(Coalsim.roll))
+#  CRPS provides a measure of forecast accuracy for each individual day.
+
+
+
+```
+
+
+
+AR1 function with MLE:
+```{r}
+ar_ML_estimation <- function(xreal) {
+  l <- length(xreal)
+  param <- c(ar1 = 0) # set 0 as starting value. Other values also possible
+  res <- vector()
+  res[1] <- 0 # "zeroth" observation set to zero
+  # define negative log-likelihood function
+  neg_log_L <- function(param) {
+    ar1 <- param[1]
+    d <- vector() # vector which will be filled with densities
+    d[1] <- dnorm(res[1], mean = 0, sd = 1)
+    # fill vector with evaluated densities
+    for (i in 2:l) {
+      res[i] <- xreal[i] - (ar1 * xreal[i - 1])
+      d[i] <- dnorm(res[i], mean = 0, sd = 1)
+    }
+    nLL <- -sum(log(d)) # calculate negative log-likelihood
+    return(nLL)
+  }
+  # "nlminb" -> Non-Linear MINimization with Bounds
+  out <- nlminb(
+    objective = neg_log_L,
+    start = param,
+    lower = c(-0.99),
+    upper = c(0.99)
+      )
+  return(out)
+}
+
+
+
+
+```
+
+
+
+
+```{r}
+n.for <- 200
+
+
+NGasres.ar <- rep(NA, 2500)
+Oilres.ar <- rep(NA, 2500)
+Coalres.ar <- rep(NA, 2500)
+
+NGasar <- ar_ML_estimation(data$NGas[1:2500])$par
+Oilar <- ar_ML_estimation(data$oil[1:2500])$par
+Coalar <- ar_ML_estimation(data$coal[1:2500])$par
+
+for (i in 2:2500) {
+  NGasres.ar[i] <- data$NGas[i] - (NGasar*data$NGas[i-1])
+  Oilres.ar[i] <- data$oil[i] - (Oilar*data$oil[i-1])
+  Coalres.ar[i] <- data$coal[i] - (Coalar*data$coal[i-1])
+}
+
+sigma1 <- sd(NGasres.ar[2:length(NGasres.ar)])
+sigma2 <- sd(Oilres.ar[2:length(Oilres.ar)])
+sigma3 <- sd(Coalres.ar[2:length(Coalres.ar)])
+
+
+Ngasfor.ar <- rep(NA, n.for)
+Oilfor.ar <- rep(NA, n.for)
+Coalfor.ar <- rep(NA, n.for)
+
+NGassim.ar <- matrix(NA, nrow = 1000, ncol = n.for)
+Oilsim.ar <- matrix(NA, nrow = 1000, ncol = n.for)
+Coalsim.ar <- matrix(NA, nrow = 1000, ncol = n.for)
+
+
+
+for (i in 1:n.for) {
+  Ngasfor.ar[i] <- NGasar*data$NGas[2500+(i-1)]
+  Oilfor.ar[i] <- Oilar*data$oil[2500+(i-1)]
+  Coalfor.ar[i] <- Coalar*data$coal[2500+(i-1)]
+  
+  NGassim.ar[,i] <- rnorm(n=1000, mean=Ngasfor.ar[i], sd= sigma1)
+  Oilsim.ar[,i] <- rnorm(n=1000, mean=Oilfor.ar[i], sd= sigma2)
+  Coalsim.ar[,i] <- rnorm(n=1000, mean=Coalfor.ar[i], sd= sigma3)
+}
+
+ 
+NGascrps.ar <- crps_sample(y=data$NGas[-c(1:2500)],dat=t(NGassim.ar))
+Oilcrps.ar <- crps_sample(y=data$oil[-c(1:2500)], dat=t(Oilsim.ar))
+Coalcrps.ar <- crps_sample(y=data$coal[-c(1:2500)], dat=t(Coalsim.ar))
+```
+
+
+Compare the probabilistic forecasting performance of the ARMA-GARCH model with the performance of an AR(1) model:
+```{r}
+NGas.crps.total <- data.frame(data[2501:2700,5],NGascrps,NGascrps.ar)
+Oil.crps.total <- data.frame(data[2501:2700,5], Oilcrps, Oilcrps.ar)
+Coal.crps.total <- data.frame(data[2501:2700,5], Coalcrps, Coalcrps.ar)
+
+colnames(NGas.crps.total) <- c("Time", "ARMA-GARCH(2,3,1,2)", "AR(1)")
+colnames(Oil.crps.total) <- c("Time", "ARMA-GARCH(3,2,1,3)", "AR(1)")
+colnames(Coal.crps.total) <- c("Time", "ARMA-GARCH(2,3,1,2)", "AR(1)")
+
+crps.p1 <- pivot(NGas.crps.total)
+crps.p2 <- pivot(Oil.crps.total)
+crps.p3 <- pivot(Coal.crps.total)
+
+plot_func(crps.p1, xlab = "Time", ylab = "CRPS", 
+          position = "right")+
+  scale_x_date(date_labels = "%b", date_breaks = "1 month") +
+  labs(title = "Natural Gas")
+plot_func(crps.p2, xlab = "Time", ylab = "CRPS", 
+          position = "right")+
+  scale_x_date(date_labels = "%b", date_breaks = "1 month")+
+  labs(title = "Oil")
+plot_func(crps.p3, xlab = "Time", ylab = "CRPS", 
+          position = "right")+
+  scale_x_date(date_labels = "%b", date_breaks = "1 month")+
+  labs(title = "Coal")
+
+
+sum(NGascrps > NGascrps.ar)
+sum(Oilcrps > Oilcrps.ar)
+sum(Coalcrps > Coalcrps.ar)
+
+mean(NGascrps)
+mean(NGascrps.ar)
+mean(Oilcrps)
+mean(Oilcrps.ar)
+mean(Coalcrps)
+mean(Coalcrps.ar)
+```
+
+## (f)
+
+The 0.05 quantile represents the lower bound of the forecasts.
+
+```{r}
+NGasq <- apply(NGassim.roll, 2, quantile, probs = 0.05)
+Oilq <- apply(NGassim.roll, 2, quantile, probs = 0.05)
+Coalq <- apply(NGassim.roll, 2, quantile, probs = 0.05)
+
+NGas.obs.q <- data.frame(data$Time[2501:2700],data$NGas[2501:2700],NGasq)
+Oil.obs.q <- data.frame(data$Time[2501:2700],data$oil[2501:2700],Oilq)
+Coal.obs.q <- data.frame(data$Time[2501:2700],data$coal[2501:2700],Coalq)
+colnames(NGas.obs.q) <- c("Time", "Observations", "0.05 quantile")
+colnames(Oil.obs.q) <- c("Time", "Observations", "0.05 quantile")
+colnames(Coal.obs.q) <- c("Time", "Observations", "0.05 quantile")
+q.p1 <- pivot(NGas.obs.q)
+q.p2 <- pivot(Oil.obs.q)
+q.p3 <- pivot(Coal.obs.q)
+plot_func(q.p1, xlab = "Time", ylab = "Value", 
+          position = "right")+
+  labs(title = "Natural Gas: 0 observations under 0.05 quatile of forecasted values")+
+  scale_x_date(date_labels = "%b", date_breaks = "1 month")
+plot_func(q.p2, xlab = "Time", ylab = "Value", 
+          position = "right")+
+  labs(title = "Oil: 35 observations under 0.05 quatile of forecasted values")+
+  scale_x_date(date_labels = "%b", date_breaks = "1 month")
+plot_func(q.p3, xlab = "Time", ylab = "Value", 
+          position = "right")+
+  labs(title = "Coal: 10 observations under 0.05 quatile of forecasted values")+
+  scale_x_date(date_labels = "%b", date_breaks = "1 month")
+
+
+sum(NGasq > data$NGas[-c(1:2500)])
+sum(Oilq > data$oil[-c(1:2500)])
+sum(Coalq > data$coal[-c(1:2500)])
+
+```
+
+
+## (h)
+
+the copula is to model the dependence structure of random variables. with the copula-GARCH model, we describe the conditional joint distribution of the commodity time series consisting of first differences of
+daily short-term future prices of natural gas, oil and coal starting from 2010-03-16 and ending in 2020-10-27.
+
+```{r}
+res1 <- rugarch::residuals(NGasfit)
+res2 <- rugarch::residuals(Oilfit)
+res3 <- rugarch::residuals(Coalfit)
+
+st.NGasres <- as.vector(res1)
+st.Oilres <- as.vector(res2)
+st.Coalres <- as.vector(res3)
+
+tr.NGasres <- pobs(scale(c(st.NGasres,NGasres.roll)))
+tr.Oilres <- pobs(scale(c(st.Oilres,Oilres.roll)))
+tr.Coalres <- pobs(scale(c(st.Coalres,Coalres.roll)))
+
+pit.res <- data.frame(tr.NGasres,tr.Oilres,tr.Coalres)
+
+# distributions of standardized residuals are not transformed properly to U[0,1]
+hist(pnorm(scale(st.NGasres)), 
+     main = NULL, xlab = "PIT-transformed standardized residuals")
+hist(pnorm(scale(st.Oilres)), 
+     main = NULL, xlab = "PIT-transformed standardized residuals")
+hist(pnorm(scale(st.Coalres)), 
+     main = NULL, xlab = "PIT-transformed standardized residuals")
+
+# so, we use Pseudo-Observations
+hist(tr.NGasres, 
+     main = NULL, xlab = "Pseudo-Observations transformed standardized residuals")
+hist(tr.Oilres, 
+     main = NULL, xlab = "Pseudo-Observations transformed standardized residuals")
+hist(tr.Coalres, 
+     main = NULL, xlab = "Pseudo-Observations transformed standardized residuals")
+
+
+
+
+cor1 <- cor(x=pit.res[1:2500,1], y=pit.res[1:2500,2], method = "spearman")
+cor2 <- cor(x=pit.res[1:2500,1], y=pit.res[1:2500,3], method = "spearman")
+cor3 <- cor(x=pit.res[1:2500,2], y=pit.res[1:2500,3], method = "spearman")
+round(c(cor1, cor2, cor3),4)
+
+
+
+ggplot(pit.res, aes(x=tr.NGasres, y=tr.Oilres)) +
+  geom_point() +
+      labs(x = "Natural Gas", y = "Oil")+
+  labs(title = "Spearman's rho: 0.1556")
+
+ggplot(pit.res, aes(x=tr.NGasres, y=tr.Coalres)) +
+  geom_point() + 
+      labs(x = "Natural Gas", y = "Coal")+
+  labs(title = "Spearman's rho: 0.2193 ")
+
+ggplot(pit.res, aes(x=tr.Oilres, y=tr.Coalres)) +
+  geom_point() + 
+      labs(x = "Oil", y = "Coal")+
+  labs(title = "Spearman's rho: 0.1112")
+
+
+```
+
+
+## (i)
+
+Goodness-of-fit tests for copulas based on the empirical process comparing the empirical copula with a parametric estimate of the copula derived under the null hypothesis. The test statistic is the Cramer-von Mises functional Sn
+```{r}
+nc <- ellipCopula(family = "n", dim = 3,dispstr="un")
+tc <- ellipCopula(family = "t", dim = 3,dispstr="un")
+
+# dispstr is the type of correlation matirx,“ex” is the simplest one that is only the power of 0.77 in response to the distance of index of  y_i and y_j   
+
+copfit.n <-  fitCopula(nc, data = pit.res[1:2500,], method = "ml")
+# estimated correlation parameter rho
+copfit.t <-  fitCopula(tc, data = pit.res[1:2500,], method = "ml")
+# estimated correlation parameter rho and d.o.f. nu
+
+
+2*(3-copfit.n@loglik)
+2*(4-copfit.t@loglik)
+
+2*(copfit.n@loglik-3)
+2*(copfit.t@loglik-4)
+
+```
+
+
+
+## (j)
+
+t copula
+
+
+```{r}
+
+u.NGas.t <- matrix(NA, nrow=1000, ncol=200)
+u.Oil.t <- matrix(NA, nrow=1000, ncol=200)
+u.Coal.t <- matrix(NA, nrow=1000, ncol=200)
+e.NGas.t <- matrix(NA, nrow=1000, ncol=200)
+e.Oil.t <- matrix(NA, nrow=1000, ncol=200)
+e.Coal.t <- matrix(NA, nrow=1000, ncol=200)
+
+
+
+for (i in 1:200) {
+  copfit.t2 <-  fitCopula(tc, data = pit.res[1:2500+(i-1),], 
+                          method = "ml")
+  rho.t <- copfit.t2@estimate[1:3]
+  df <- copfit.t2@estimate[4]
+  
+  t.cop.sim <- rCopula(1000, tCopula(rho.t, dim = 3, 
+                             dispstr = "un", df = df))
+  u.NGas.t[,i] <- t.cop.sim[,1]
+  u.Oil.t[,i] <- t.cop.sim[,2]
+  u.Coal.t[,i] <- t.cop.sim[,3]
+  
+  e.NGas.t[,i] <- qnorm(u.NGas.t[,i], mean=0, sd=1)
+  e.Oil.t[,i] <- qnorm(u.Oil.t[,i], mean=0, sd=1)
+  e.Coal.t[,i] <- qnorm(u.Coal.t[,i], mean=0, sd=1)
+  
+}
+
+
+NGasfor.cop.t <- matrix(NA, nrow = 1000, ncol=200)
+Oilfor.cop.t <- matrix(NA, nrow = 1000, ncol=200)
+Coalfor.cop.t <- matrix(NA, nrow = 1000, ncol=200)
+
+for (i in 1:200) {
+  NGasfor.cop.t[,i] <- e.NGas.t[,i]*tr.NGasres[2500+i] + for.NGas[2500+i]
+  Oilfor.cop.t[,i] <- e.Oil.t[,i]*tr.Oilres[2500+i] + for.Oil[2500+i]
+  Coalfor.cop.t[,i] <- e.Coal.t[,i]*tr.Coalres[2500+i] + for.Coal[2500+i]
+}
+
+
+```
+
+normal copula
+```{r}
+
+
+u.NGas.n <- matrix(NA, nrow=1000, ncol=200)
+u.Oil.n <- matrix(NA, nrow=1000, ncol=200)
+u.Coal.n <- matrix(NA, nrow=1000, ncol=200)
+e.NGas.n <- matrix(NA, nrow=1000, ncol=200)
+e.Oil.n <- matrix(NA, nrow=1000, ncol=200)
+e.Coal.n <- matrix(NA, nrow=1000, ncol=200)
+
+
+for (i in 1:200) {
+  copfit.n2 <-  fitCopula(nc, data = pit.res[1:2500+(i-1),], 
+                          method = "ml")
+  rho.for <- copfit.n2@estimate
+
+  n.cop.sim <- rCopula(1000, normalCopula(rho.for, dim = 3, dispstr = "un"))
+  
+  u.NGas.n[,i] <- n.cop.sim[,1]
+  u.Oil.n[,i] <- n.cop.sim[,2]
+  u.Coal.n[,i] <- n.cop.sim[,3]
+  
+  e.NGas.n[,i] <- qnorm(u.NGas.n[,i], mean=0, sd=1)
+  e.Oil.n[,i] <- qnorm(u.Oil.n[,i], mean=0, sd=1)
+  e.Coal.n[,i] <- qnorm(u.Coal.n[,i], mean=0, sd=1)
+  
+}
+
+
+
+NGasfor.cop.n <- matrix(NA, nrow = 1000, ncol=200)
+Oilfor.cop.n <- matrix(NA, nrow = 1000, ncol=200)
+Coalfor.cop.n <- matrix(NA, nrow = 1000, ncol=200)
+
+for (i in 1:200) {
+  NGasfor.cop.n[,i] <- e.NGas.n[,i]*tr.NGasres[2500+i] + for.NGas[2500+i]
+  Oilfor.cop.n[,i] <- e.Oil.n[,i]*tr.Oilres[2500+i] + for.Oil[2500+i]
+  Coalfor.cop.n[,i] <- e.Coal.n[,i]*tr.Coalres[2500+i] + for.Coal[2500+i]
+}
+
+
+```
+
+
+
+## (k)
+
+```{r}
+
+
+
+obs <- data[-c(1:2500), c(2:4)]
+fc.list.n <- vector("list", n)
+
+for (i in 1:200) {
+
+ simulation.n <- cbind(NGasfor.cop.n[,i],Oilfor.cop.n[,i],Coalfor.cop.n[,i])
+ observation <- as.numeric(obs[i,])
+ fc.list.n[[i]] <- list(observation = observation,simulation.n = t(simulation.n))
+ }
+
+es.list.n <- rep(NA,200)
+for (i in 1:200) {
+  es.n <- es_sample(y=fc.list.n[[i]]$observation, 
+                          dat = fc.list.n[[i]]$simulation.n)
+  es.list.n[i] <- as.numeric(es.n)
+}
+
+fc.list.t <- vector("list", n)
+
+for (i in 1:200) {
+
+ simulation.t <- cbind(NGasfor.cop.t[,i],Oilfor.cop.t[,i],Coalfor.cop.t[,i])
+ observation <- as.numeric(obs[i,])
+ fc.list.t[[i]] <- list(observation = observation,simulation.t = t(simulation.t))
+ }
+
+es.list.t <- rep(NA,200)
+for (i in 1:200) {
+  es.t <- es_sample(y=fc.list.t[[i]]$observation, 
+                          dat = fc.list.t[[i]]$simulation.t)
+  es.list.t[i] <- as.numeric(es.t)
+}
+
+fc.list.in <- vector("list", n)
+
+for (i in 1:200) {
+
+ simulation.in <- cbind(NGassim.roll[,i],Oilsim.roll[,i],Coalsim.roll[,i])
+ observation <- as.numeric(obs[i,])
+ fc.list.in[[i]] <- list(observation = observation,simulation.in = t(simulation.in))
+ }
+
+es.list.in <- rep(NA,200)
+for (i in 1:200) {
+  es.in <- es_sample(y=fc.list.in[[i]]$observation, 
+                          dat = fc.list.in[[i]]$simulation.in)
+  es.list.in[i] <- as.numeric(es.in)
+}
+
+
+es.df <- data.frame(data$Time[-c(1:2500)], es.list.n,es.list.t, es.list.in)
+colnames(es.df) <- c("Time", "Gaussian Copula", "Student's t Copula", "Independence Copula")
+es.piv <- pivot(es.df)
+plot_func(es.piv, xlab = "Time", ylab = "Energy Score", 
+          position = "top")+
+  scale_x_date(date_labels = "%b", date_breaks = "1 month")
+mean(es.list.n)
+mean(es.list.t)
+mean(es.list.in)
+
+
+
+```
+
+citation("tidyverse")
+

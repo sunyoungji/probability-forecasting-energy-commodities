@@ -10,9 +10,8 @@ This project evaluates and compares the forecasting performance of ARMA-GARCH an
 
 Key findings:
 
-Natural gas and coal exhibited similar volatility patterns and strong correlation, 89.7% higher than that between oil and coal.
-
-However, incorporating multivariate dependencies (Copula models) did not significantly improve forecast accuracy.
+- Natural gas and coal exhibited similar volatility patterns and strong correlation, 89.7% higher than that between oil and coal.
+- However, incorporating multivariate dependencies (Copula models) did not significantly improve forecast accuracy.
 
 This project was completed as part of the Case Study course at TU Dortmund.
 
